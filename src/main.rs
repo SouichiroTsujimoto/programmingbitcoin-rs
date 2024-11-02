@@ -1,5 +1,7 @@
 use std::{ops, process::Output};
-use num_traits;
+
+use num_traits::Zero;
+
 
 #[derive(Debug)]
 struct InvalidFieldElement;
@@ -13,26 +15,51 @@ impl std::fmt::Display for InvalidFieldElement {
 }
 
 #[derive(Debug)]
-struct DifferentOrderExpression;
+enum ExpressionError {
+    DifferentOrderExpression,
+    ZeroDivision,
+}
 
-impl std::error::Error for DifferentOrderExpression {}
+impl std::error::Error for ExpressionError {}
 
-impl std::fmt::Display for DifferentOrderExpression {
+impl std::fmt::Display for ExpressionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cannnot add two numbers in different Fields")
+        match self {
+            ExpressionError::DifferentOrderExpression => write!(f, "Cannnot add two numbers in different Fields"),
+            ExpressionError::ZeroDivision => write!(f, "Cannot divide by zero"),
+        }
     }
 }
 
+// impl std::error::Error for ExpressionError {}
+
+// impl std::fmt::Display for ExpressionError {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "Cannnot divide by zero")
+//     }
+// }
+
+type Order = u32;
+
+trait Modulus {
+    fn modulus(self, prime: Order) -> i32;
+}
+
+impl Modulus for i32 {
+    fn modulus(self, prime: Order) -> Self {
+        ((self % prime as i32) + prime as i32) % prime as i32
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FieldElement {
     num: i32,
-    prime: i32,
+    prime: Order,
 }
 
-impl FieldElement {
-    pub fn new(num: i32, prime: i32) -> Result<FieldElement, InvalidFieldElement> {
-        if num >= prime || num < 0 || prime < 0 {
+impl FieldElement { 
+    pub fn new(num: i32, prime: u32) -> Result<FieldElement, InvalidFieldElement> {
+        if num >= prime as i32 || num < 0 || prime < 0 {
             return Err(InvalidFieldElement);
         }
 
@@ -43,21 +70,12 @@ impl FieldElement {
     }
 }
 
-trait Modulus {
-    fn modulus(&self, other: Self) -> Self;
-}
-
-impl<T: num_traits::PrimInt> Modulus for T {
-    fn modulus(&self, other: Self) -> Self {
-        ((*self % other) + other) % other
-    }
-}
 
 impl ops::Add for FieldElement {
-    type Output = Result<Self, DifferentOrderExpression>;
+    type Output = Result<Self, ExpressionError>;
 
     fn add(self, rhs: Self) ->  Self::Output{
-        if self.prime != rhs.prime { return Err(DifferentOrderExpression) }
+        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
         
         Ok(Self { 
             num: (self.num + rhs.num).modulus(self.prime),
@@ -67,10 +85,10 @@ impl ops::Add for FieldElement {
 }
 
 impl ops::Sub for FieldElement {
-    type Output = Result<Self, DifferentOrderExpression>;
+    type Output = Result<Self, ExpressionError>;
 
     fn sub(self, rhs: Self) ->  Self::Output{
-        if self.prime != rhs.prime { return Err(DifferentOrderExpression) }
+        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
         
         Ok(Self { 
             num: (self.num - rhs.num).modulus(self.prime),
@@ -79,9 +97,63 @@ impl ops::Sub for FieldElement {
     }
 }
 
+impl ops::Mul for FieldElement {
+    type Output = Result<Self, ExpressionError>;
+
+    fn mul(self, rhs: Self) -> Self::Output{
+        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
+
+        Ok(Self {
+            num: (self.num * rhs.num).modulus(self.prime),
+            prime: self.prime
+        })
+    }
+}
+
+impl FieldElement {
+    fn pow(self, rhs: i32) -> Self{
+        let ex = if rhs < 0 {
+            // 指数nが負の場合
+            // 指数が正になるまでa^p-1 (= 1) を掛け合わせるので、
+            // a^n = a^(n mod p-1)
+            rhs.modulus(self.prime - 1)
+        } else { rhs };
+
+        let mut num = 1;
+        for _ in 0..ex {num = (self.num * num).modulus(self.prime)}
+        
+        Self {
+            num: num,
+            prime: self.prime
+        }
+    }
+}
+
+impl ops::Div for FieldElement {
+    type Output = Result<Self, ExpressionError>;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
+        if rhs.num == 0 { return Err(ExpressionError::ZeroDivision) }
+
+        Ok((self * (rhs.pow(-1)))?)
+    }
+}
+
+
+
+
 fn main() {
+    
+    let a = FieldElement::new(2,13).unwrap();
+    let b = FieldElement::new(4,13).unwrap();
+    
+    println!("{:#?}", b.pow(2) * a.pow(-4));
+    
     println!("Hello, world!");
 }
+
+
 
 
 #[cfg(test)]
@@ -125,23 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn field_element_add() -> Result<(), Box<dyn std::error::Error>> {
+    fn field_element_add_and_sub() -> Result<(), Box<dyn std::error::Error>> {
         let a = FieldElement::new(7,13)?;
         let b = FieldElement::new(12,13)?;
         let c = FieldElement::new(6,13)?;
 
         assert_eq!((a+b)?, c);
 
-        Ok(())
-    }
-
-    #[test]
-    fn field_element_sub() -> Result<(), Box<dyn std::error::Error>> {
-        let a = FieldElement::new(9,57)?;
-        let b = FieldElement::new(29,57)?;
-        let c = FieldElement::new(37,57)?;
-
-        assert_eq!((a-b)?, c);
+        assert_eq!((c-b)?, a);
 
         Ok(())
     }
@@ -163,5 +226,34 @@ mod tests {
             Ok(_) => println!("why?"),
             Err(_) => panic!("Invalid expression"),
         }
+    }
+
+    #[test]
+    fn field_element_mul_and_pow() -> Result<(), Box<dyn std::error::Error>> {
+        let a = FieldElement::new(2,13)?;
+        let b = FieldElement::new(8,13)?;
+        let c = FieldElement::new(3,13)?;
+
+        assert_eq!((a*b)?, c);
+
+        assert_eq!(a.pow(4), c);
+
+        assert_ne!(a.pow(5), c);
+
+        Ok(())
+    }
+
+    #[test]
+    fn field_element_div() -> Result<(), Box<dyn std::error::Error>> {
+        let a = FieldElement::new(2,13)?;
+        let b = FieldElement::new(8,13)?;
+        let c = FieldElement::new(3,13)?;
+        let d = FieldElement::new(4,13)?;
+
+        assert_eq!((b / a)?, d);
+
+        assert_eq!(((a.pow(3) * c)? / b)?, c);
+
+        Ok(())
     }
 }
