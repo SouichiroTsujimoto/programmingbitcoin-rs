@@ -1,147 +1,8 @@
-use std::{ops, process::Output};
+mod field_element;
+use field_element::FieldElement;
 
-use num_traits::Zero;
-
-
-#[derive(Debug)]
-struct InvalidFieldElement;
-
-impl std::error::Error for InvalidFieldElement {}
-
-impl std::fmt::Display for InvalidFieldElement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Num is not in field range 0 to (Order - 1)")
-    }
-}
-
-#[derive(Debug)]
-enum ExpressionError {
-    DifferentOrderExpression,
-    ZeroDivision,
-}
-
-impl std::error::Error for ExpressionError {}
-
-impl std::fmt::Display for ExpressionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExpressionError::DifferentOrderExpression => write!(f, "Cannnot add two numbers in different Fields"),
-            ExpressionError::ZeroDivision => write!(f, "Cannot divide by zero"),
-        }
-    }
-}
-
-// impl std::error::Error for ExpressionError {}
-
-// impl std::fmt::Display for ExpressionError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Cannnot divide by zero")
-//     }
-// }
-
-type Order = u32;
-
-trait Modulus {
-    fn modulus(self, prime: Order) -> i32;
-}
-
-impl Modulus for i32 {
-    fn modulus(self, prime: Order) -> Self {
-        ((self % prime as i32) + prime as i32) % prime as i32
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FieldElement {
-    num: i32,
-    prime: Order,
-}
-
-impl FieldElement { 
-    pub fn new(num: i32, prime: u32) -> Result<FieldElement, InvalidFieldElement> {
-        if num >= prime as i32 || num < 0 || prime < 0 {
-            return Err(InvalidFieldElement);
-        }
-
-        Ok(FieldElement {
-            num: num,
-            prime: prime,
-        })
-    }
-}
-
-
-impl ops::Add for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn add(self, rhs: Self) ->  Self::Output{
-        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
-        
-        Ok(Self { 
-            num: (self.num + rhs.num).modulus(self.prime),
-            prime: self.prime
-        })
-    }
-}
-
-impl ops::Sub for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn sub(self, rhs: Self) ->  Self::Output{
-        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
-        
-        Ok(Self { 
-            num: (self.num - rhs.num).modulus(self.prime),
-            prime: self.prime
-        })
-    }
-}
-
-impl ops::Mul for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn mul(self, rhs: Self) -> Self::Output{
-        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
-
-        Ok(Self {
-            num: (self.num * rhs.num).modulus(self.prime),
-            prime: self.prime
-        })
-    }
-}
-
-impl FieldElement {
-    fn pow(self, rhs: i32) -> Self{
-        let ex = if rhs < 0 {
-            // 指数nが負の場合
-            // 指数が正になるまでa^p-1 (= 1) を掛け合わせるので、
-            // a^n = a^(n mod p-1)
-            rhs.modulus(self.prime - 1)
-        } else { rhs };
-
-        let mut num = 1;
-        for _ in 0..ex {num = (self.num * num).modulus(self.prime)}
-        
-        Self {
-            num: num,
-            prime: self.prime
-        }
-    }
-}
-
-impl ops::Div for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
-        if rhs.num == 0 { return Err(ExpressionError::ZeroDivision) }
-
-        Ok((self * (rhs.pow(-1)))?)
-    }
-}
-
-
-
+mod point;
+use point::Point;
 
 fn main() {
     
@@ -154,13 +15,12 @@ fn main() {
 }
 
 
-
-
 #[cfg(test)]
 mod tests {
     use core::panic;
 
-    use crate::{FieldElement, InvalidFieldElement};
+    use crate::field_element::FieldElement;
+    use crate::point::Point;
 
     #[test]
     fn field_element_eq_and_ne() -> Result<(), Box<dyn std::error::Error>> {
@@ -254,6 +114,101 @@ mod tests {
 
         assert_eq!(((a.pow(3) * c)? / b)?, c);
 
+        Ok(())
+    }
+
+    #[test]
+    fn ecc_test_valid_points() -> Result<(), Box<dyn std::error::Error>> {
+        let a = FieldElement::new(0, 223)?;
+        let b = FieldElement::new(7, 223)?;
+
+        let x1 = FieldElement::new(192, 223)?;
+        let y1 = FieldElement::new(105, 223)?;
+        let x2 = FieldElement::new(17, 223)?;
+        let y2 = FieldElement::new(56, 223)?;
+        let x3 = FieldElement::new(1, 223)?;
+        let y3 = FieldElement::new(193, 223)?;
+
+        Point::new(Some(x1), Some(y1), a, b)?;
+        Point::new(Some(x2), Some(y2), a, b)?;
+        Point::new(Some(x3), Some(y3), a, b)?;
+
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn ecc_test_invalid_points() {
+        let a = FieldElement::new(0, 223).unwrap();
+        let b = FieldElement::new(7, 223).unwrap();
+
+        let x1 = FieldElement::new(200, 223).unwrap();
+        let y1 = FieldElement::new(119, 223).unwrap();
+        let x2 = FieldElement::new(42, 223).unwrap();
+        let y2 = FieldElement::new(99, 223).unwrap();
+
+        match Point::new(Some(x1), Some(y1), a, b) {
+            Ok(_) => println!("why?"),
+            Err(_) => panic!("Invalid point"),
+        }
+
+        match Point::new(Some(x2), Some(y2), a, b) {
+            Ok(_) => println!("why?"),
+            Err(_) => panic!("Invalid point"),
+        }
+    }
+
+    #[test]
+    fn ecc_test_add_points() -> Result<(), Box<dyn std::error::Error>> {
+        let a = FieldElement::new(0, 223)?;
+        let b = FieldElement::new(7, 223)?;
+
+        // 加算テスト1
+        let x1 = FieldElement::new(170, 223)?;
+        let y1 = FieldElement::new(142, 223)?;
+        let x2 = FieldElement::new(60, 223)?;
+        let y2 = FieldElement::new(139, 223)?;
+        let x3 = FieldElement::new(220, 223)?;
+        let y3 = FieldElement::new(181, 223)?;
+        
+        let p1 = Point::new(Some(x1), Some(y1), a, b)?;
+        let p2 = Point::new(Some(x2), Some(y2), a, b)?;
+        let p3 = Point::new(Some(x3), Some(y3), a, b)?;
+
+        assert_eq!((p1 + p2)?, p3);
+
+        // 加算テスト2
+        let x1 = FieldElement::new(47, 223)?;
+        let y1 = FieldElement::new(71, 223)?;
+        let x2 = FieldElement::new(17, 223)?;
+        let y2 = FieldElement::new(56, 223)?;
+        let x3 = FieldElement::new(215, 223)?;
+        let y3 = FieldElement::new(68, 223)?;
+
+        let p1 = Point::new(Some(x1), Some(y1), a, b)?;
+        let p2 = Point::new(Some(x2), Some(y2), a, b)?;
+        let p3 = Point::new(Some(x3), Some(y3), a, b)?;
+
+        assert_eq!((p1 + p2)?, p3);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn ecc_test_mul_points() -> Result<(), Box<dyn std::error::Error>> {
+        let a = FieldElement::new(0, 223)?;
+        let b = FieldElement::new(7, 223)?;
+
+        let x1 = FieldElement::new(170, 223)?;
+        let y1 = FieldElement::new(142, 223)?;
+
+        let p1 = Point::new(Some(x1), Some(y1), a, b)?;
+
+        let two = FieldElement::new(2, 223)?;
+        let p2 = (p1 * two)?; // 未実装
+
+        assert_eq!(p2, p1 + p1); // 未実装
+        
         Ok(())
     }
 }
