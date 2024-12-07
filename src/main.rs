@@ -1,8 +1,11 @@
 mod field_element;
-use field_element::FieldElement;
+use field_element::{FieldElement, FieldElementOperation};
 
 mod point;
 use point::Point;
+
+mod secp256k1;
+use secp256k1::S256Field;
 
 fn main() {
     
@@ -175,7 +178,7 @@ mod tests {
         let p2 = Point::new(Some(x2), Some(y2), a, b)?;
         let p3 = Point::new(Some(x3), Some(y3), a, b)?;
 
-        assert_eq!((p1 + p2)?, p3);
+        assert_eq!((&p1 + &p2)?, p3);
 
         // 加算テスト2
         let x1 = FieldElement::new(47, 223)?;
@@ -189,7 +192,7 @@ mod tests {
         let p2 = Point::new(Some(x2), Some(y2), a, b)?;
         let p3 = Point::new(Some(x3), Some(y3), a, b)?;
 
-        assert_eq!((p1 + p2)?, p3);
+        assert_eq!((&p1 + &p2)?, p3);
         
         Ok(())
     }
@@ -204,10 +207,9 @@ mod tests {
 
         let p1 = Point::new(Some(x1), Some(y1), a, b)?;
 
-        let two = FieldElement::new(2, 223)?;
-        let p2 = (p1 * two)?; // 未実装
+        let p2 = (&p1 * 2)?;
 
-        assert_eq!(p2, p1 + p1); // 未実装
+        assert_eq!(p2, (&p1 + &p1)?);
         
         Ok(())
     }

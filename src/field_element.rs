@@ -24,17 +24,9 @@ impl std::fmt::Display for ExpressionError {
     }
 }
 
-// impl std::error::Error for ExpressionError {}
-
-// impl std::fmt::Display for ExpressionError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Cannnot divide by zero")
-//     }
-// }
-
 type Order = u32;
 
-trait Modulus {
+pub trait Modulus {
     fn modulus(self, prime: Order) -> i32;
 }
 
@@ -52,7 +44,7 @@ pub struct FieldElement {
 
 impl FieldElement { 
     pub fn new(num: i32, prime: u32) -> Result<FieldElement, ExpressionError> {
-        if num >= prime as i32 || num < 0 || prime < 0 {
+        if num >= prime as i32 || num < 0 {
             return Err(ExpressionError::InvalidFieldElement);
         }
 
@@ -63,11 +55,20 @@ impl FieldElement {
     }
 }
 
+pub trait FieldElementOperation {
+    type GeneralOpOutput;
 
-impl ops::Add for FieldElement {
-    type Output = Result<Self, ExpressionError>;
+    fn add_op(self, rhs: Self) -> Self::GeneralOpOutput;
+    fn sub_op(self, rhs: Self) -> Self::GeneralOpOutput;
+    fn mul_op(self, rhs: Self) -> Self::GeneralOpOutput;
+    fn div_op(self, rhs: Self) -> Self::GeneralOpOutput;
+    fn pow(self, rhs: i32) -> Self;
+}
 
-    fn add(self, rhs: Self) ->  Self::Output{
+impl FieldElementOperation for FieldElement {
+    type GeneralOpOutput = Result<Self, ExpressionError>;
+
+    fn add_op(self, rhs: Self) -> Self::GeneralOpOutput {
         if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
         
         Ok(Self { 
@@ -75,12 +76,8 @@ impl ops::Add for FieldElement {
             prime: self.prime
         })
     }
-}
 
-impl ops::Sub for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn sub(self, rhs: Self) ->  Self::Output{
+    fn sub_op(self, rhs: Self) -> Self::GeneralOpOutput {
         if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
         
         Ok(Self { 
@@ -88,12 +85,8 @@ impl ops::Sub for FieldElement {
             prime: self.prime
         })
     }
-}
 
-impl ops::Mul for FieldElement {
-    type Output = Result<Self, ExpressionError>;
-
-    fn mul(self, rhs: Self) -> Self::Output{
+    fn mul_op(self, rhs: Self) -> Self::GeneralOpOutput {
         if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
 
         Ok(Self {
@@ -101,10 +94,15 @@ impl ops::Mul for FieldElement {
             prime: self.prime
         })
     }
-}
 
-impl FieldElement {
-    pub fn pow(self, rhs: i32) -> Self{
+    fn div_op(self, rhs: Self) -> Self::GeneralOpOutput {
+        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
+        if rhs.num == 0 { return Err(ExpressionError::ZeroDivision) }
+
+        Ok(self.mul_op(rhs.pow(-1))?)
+    }
+
+    fn pow(self, rhs: i32) -> Self {
         let ex = if rhs < 0 {
             // 指数nが負の場合
             // 指数が正になるまでa^p-1 (= 1) を掛け合わせるので、
@@ -122,14 +120,35 @@ impl FieldElement {
     }
 }
 
+impl ops::Add for FieldElement {
+    type Output = Result<Self, ExpressionError>;
+
+    fn add(self, rhs: Self) ->  Self::Output{
+        self.add_op(rhs)
+    }
+}
+
+impl ops::Sub for FieldElement {
+    type Output = Result<Self, ExpressionError>;
+
+    fn sub(self, rhs: Self) ->  Self::Output{
+        self.sub_op(rhs)
+    }
+}
+
+impl ops::Mul for FieldElement {
+    type Output = Result<Self, ExpressionError>;
+
+    fn mul(self, rhs: Self) -> Self::Output{
+        self.mul_op(rhs)
+    }
+}
+
 impl ops::Div for FieldElement {
     type Output = Result<Self, ExpressionError>;
 
     fn div(self, rhs: Self) -> Self::Output {
-        if self.prime != rhs.prime { return Err(ExpressionError::DifferentOrderExpression) }
-        if rhs.num == 0 { return Err(ExpressionError::ZeroDivision) }
-
-        Ok((self * (rhs.pow(-1)))?)
+        self.div_op(rhs)
     }
 }
 

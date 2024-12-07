@@ -1,11 +1,10 @@
 use std::{ops};
-use crate::field_element::{FieldElement, ExpressionError};
+use crate::field_element::{ExpressionError, FieldElement, FieldElementOperation};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Point<T, E>
+#[derive(Debug)]
+pub struct Point<T>
 where
-    T: ops::Mul<Output = Result<T, E>> + ops::Add<Output = Result<T, E>>,
-    E: std::error::Error,
+    T: FieldElementOperation,
 {
     x: Option<T>,
     y: Option<T>,
@@ -13,10 +12,10 @@ where
     b: T,
 }
 
-impl Point<FieldElement, ExpressionError> {
+impl Point<FieldElement> {
     pub fn new(x: Option<FieldElement>, y: Option<FieldElement>, a: FieldElement, b: FieldElement) -> Result<Self, ExpressionError> {
         if x.is_none() || y.is_none() {
-            return Ok(Point { x, y, a, b });
+            return Ok(Self { x, y, a, b });
         }
 
         let x = x.unwrap();
@@ -38,23 +37,28 @@ impl Point<FieldElement, ExpressionError> {
         if y.pow(2) != x_pow_3_add_ax_add_b {
             return Err(ExpressionError::InvalidPoint);
         }
-        Ok(Point { x: Some(x), y: Some(y), a, b })
+        Ok(Self { x: Some(x), y: Some(y), a, b })
     }
 }
 
-impl ops::Add for Point<FieldElement, ExpressionError> {
+pub trait PointOperation {
+    type Output;
+    fn add_op(&self, rhs: &Self) -> Self::Output;
+    fn mul_op(&self, rhs: u32) -> Self::Output;
+}
+impl PointOperation for Point<FieldElement> {
     type Output = Result<Self, ExpressionError>;
 
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add_op(&self, rhs: &Self) -> Self::Output {
         if self.a != rhs.a || self.b != rhs.b {
             return Err(ExpressionError::DifferentCurves);
         }
 
         if self.x.is_none() || self.y.is_none() {
-            return Ok(rhs);
+            return Ok(rhs.clone());
         }
         if rhs.x.is_none() || rhs.y.is_none() {
-            return Ok(self);
+            return Ok(self.clone());
         }
 
         let x1 = self.x.unwrap();
@@ -99,10 +103,57 @@ impl ops::Add for Point<FieldElement, ExpressionError> {
             Ok(Point::new(Some(x3), Some(y3), self.a, self.b)?)
         }
     }
+
+    fn mul_op(&self, rhs: u32) -> Self::Output {
+        let mut res = Point::new(None, None, self.a, self.b).unwrap();
+
+        let mut coef = rhs;
+        let mut current = self.clone();
+
+        while coef > 0 {
+            if coef & 1 == 1 {
+                res = (&res + &current)?;
+            }
+            current = (&current + &current)?;
+            coef >>= 1;
+        }
+        Ok(res)
+    }
 }
 
-impl PartialEq for Point<FieldElement, ExpressionError> {
+impl Clone for Point<FieldElement> {
+    fn clone(&self) -> Self {
+        Point { x: self.x, y: self.y, a: self.a, b: self.b }
+    }
+}
+
+impl PartialEq for Point<FieldElement> {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y
+        self.a == other.a && self.b == other.b && self.x == other.x && self.y == other.y
+    }
+}
+
+impl ops::Add<&Point<FieldElement>> for &Point<FieldElement> {
+    type Output = Result<Point<FieldElement>, ExpressionError>;
+
+    fn add(self, rhs: &Point<FieldElement>) -> Self::Output {
+        self.add_op(rhs)
+    }
+}
+
+
+impl ops::Mul<u32> for &Point<FieldElement> {
+    type Output = Result<Point<FieldElement>, ExpressionError>;
+
+    fn mul(self, rhs: u32) -> Self::Output {
+        self.mul_op(rhs)
+    }
+}
+
+impl ops::Mul<&Point<FieldElement>> for u32 {
+    type Output = Result<Point<FieldElement>, ExpressionError>;
+
+    fn mul(self, rhs: &Point<FieldElement>) -> Self::Output {
+        rhs * self  // 既に実装した Point * u32 を再利用
     }
 }
