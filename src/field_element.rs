@@ -27,7 +27,7 @@ impl std::fmt::Display for ExpressionError {
 type Order = u32;
 
 pub trait Modulus {
-    fn modulus(self, prime: Order) -> i32;
+    fn modulus(self, prime: Order) -> Self;
 }
 
 impl Modulus for i32 {

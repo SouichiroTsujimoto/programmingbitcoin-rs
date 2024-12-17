@@ -2,15 +2,22 @@ use std::ops;
 use crate::field_element::{FieldElement, FieldElementOperation};
 use crate::field_element::{ExpressionError, Modulus};
 use crate::point::{Point, PointOperation};
+use primitive_types::U256;
+
+impl Modulus for U256 {
+    fn modulus(self, prime: u32) -> Self {
+        self % U256::from(prime)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct S256Field {
-    pub num: i32,
+    pub num: U256,
     pub prime: u32,
 }
 
 impl S256Field { 
-    pub const fn new(num: i32) -> Self {
+    pub const fn new(num: U256) -> Self {
         S256Field {
             num: num,
             prime: 2u32.pow(256) - 2u32.pow(32) - 977,
@@ -54,7 +61,7 @@ impl FieldElementOperation for S256Field {
             rhs.modulus(self.prime - 1)
         } else { rhs };
 
-        let mut num = 1;
+        let mut num = U256::from(1);
         for _ in 0..ex {num = (self.num * num).modulus(self.prime)}
         
         Self {
@@ -114,11 +121,12 @@ where
     y: Option<T>,
     a: T,
     b: T,
+    N: U256,
 }
 
 impl Clone for S256Point<S256Field> {
     fn clone(&self) -> Self {
-        S256Point { x: self.x, y: self.y, a: self.a, b: self.b }
+        S256Point { x: self.x, y: self.y, a: self.a, b: self.b, N: self.N }
     }
 }
 
@@ -128,53 +136,37 @@ impl PartialEq for S256Point<S256Field> {
     }
 }
 
-impl S256Point<S256Field> {
-    const a: S256Field = S256Field::new(0);
-    const b: S256Field = S256Field::new(7);
-    const N1: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
-    const N2: u128 = 0xBAAEDCE6AF48A03BBFD25E8CD0364141;
-    
-    
-    
-    
-    
-    // TODO: BigInt U256
-
-
-
-
-
-
-    
-
+impl S256Point<S256Field> {   
     pub fn new(x: Option<S256Field>, y: Option<S256Field>) -> Result<Self, ExpressionError> {
+        let a: S256Field = S256Field::new(U256::from(0));
+        let b: S256Field = S256Field::new(U256::from(7));
+        let N = U256::from_dec_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141").unwrap();
+        
         if x.is_none() || y.is_none() {
-            return Ok(Self { x, y, a: Self::a, b: Self::b });
+            return Ok(Self { x, y, a, b, N });
         }
 
         let x = x.unwrap();
         let y = y.unwrap();
         
-        let ax = Self::a * x;
+        let ax = a * x;
         let x_pow_3_add_ax = x.pow(3) + ax;
-        let x_pow_3_add_ax_add_b = x_pow_3_add_ax + Self::b;
+        let x_pow_3_add_ax_add_b = x_pow_3_add_ax + b;
         
         if y.pow(2) != x_pow_3_add_ax_add_b {
             return Err(ExpressionError::InvalidPoint);
         }
-        Ok(Self { x: Some(x), y: Some(y), a: Self::a, b: Self::b })
+        Ok(Self { x: Some(x), y: Some(y), a, b, N })
     }
 }
 
-impl PointOperation for S256Point<S256Field> {
-    type Output = Self;
-
-    fn add_op(&self, rhs: &Self) -> Self::Output {
+impl S256Point<S256Field> {
+    fn add_op(&self, rhs: &Self) -> S256Point<S256Field> {
         if self.x.is_none() || self.y.is_none() {
-            rhs.clone();
+            return rhs.clone();
         }
         if rhs.x.is_none() || rhs.y.is_none() {
-            self.clone();
+            return self.clone();
         }
 
         let x1 = self.x.unwrap();
@@ -191,9 +183,9 @@ impl PointOperation for S256Point<S256Field> {
             S256Point::new(None, None).unwrap()
         } else if x1 == x2 && y1 == y2 {
             // 同じ点同士の加算 -> 接線
-            let three = S256Field::new(3);
-            let two = S256Field::new(2);
-            let zero = S256Field::new(0);
+            let three = S256Field::new(U256::from(3));
+            let two = S256Field::new(U256::from(2));
+            let zero = S256Field::new(U256::from(0));
 
             // 接線が垂直
             if y1 == zero {
@@ -218,18 +210,18 @@ impl PointOperation for S256Point<S256Field> {
         }
     }
 
-    fn mul_op(&self, rhs: u32) -> Self::Output {
+    fn mul_op(&self, rhs: U256) -> S256Point<S256Field> {
         let mut res = S256Point::new(None, None).unwrap();
 
-        let mut coef = rhs / N; // TODO: U256
+        let mut coef = rhs / self.N;
         let mut current = self.clone();
 
-        while coef > 0 {
-            if coef & 1 == 1 {
+        while coef > U256::from(0) {
+            if coef & U256::from(1) == U256::from(1) {
                 res = res.add_op(&current);
             }
             current = current.add_op(&current);
-            coef >>= 1;
+            coef >>= U256::from(1);
         }
         res
     }
@@ -243,19 +235,18 @@ impl ops::Add<&S256Point<S256Field>> for &S256Point<S256Field> {
     }
 }
 
-
-impl ops::Mul<u32> for &S256Point<S256Field> {
+impl ops::Mul<U256> for &S256Point<S256Field> {
     type Output = S256Point<S256Field>;
 
-    fn mul(self, rhs: u32) -> Self::Output {
+    fn mul(self, rhs: U256) -> Self::Output {
         self.mul_op(rhs)
     }
 }
 
-impl ops::Mul<&S256Point<S256Field>> for u32 {
+impl ops::Mul<&S256Point<S256Field>> for U256 {
     type Output = S256Point<S256Field>;
 
     fn mul(self, rhs: &S256Point<S256Field>) -> Self::Output {
-        rhs * self  // 既に実装した Point * u32 を再利用
+        rhs * self
     }
 }
